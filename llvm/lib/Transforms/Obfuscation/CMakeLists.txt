@@ -19,18 +19,4 @@ add_llvm_component_library(LLVMObfuscation
   TransformUtils
   )
 
-# Also build as a loadable plugin
-add_llvm_library(LLVMObfuscationPlugin MODULE
-  BogusControlFlow.cpp
-  CryptoUtils.cpp
-  Flattening.cpp
-  ObfuscationPlugin.cpp
-  SplitBasicBlocks.cpp
-  Substitution.cpp
-  Utils.cpp
-
-  PLUGIN_TOOL opt
-
-  DEPENDS
-  intrinsics_gen
-  )
+add_subdirectory(Plugin)
