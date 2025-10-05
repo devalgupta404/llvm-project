@@ -7,9 +7,8 @@
 // Shamefully borrowed from ../Scalar/RegToMem.cpp :(
 bool valueEscapes(Instruction *Inst) {
   BasicBlock *BB = Inst->getParent();
-  for (Value::use_iterator UI = Inst->use_begin(), E = Inst->use_end(); UI != E;
-       ++UI) {
-    Instruction *I = cast<Instruction>(*UI);
+  for (Use &U : Inst->uses()) {
+    Instruction *I = cast<Instruction>(U.getUser());
     if (I->getParent() != BB || isa<PHINode>(I)) {
       return true;
     }

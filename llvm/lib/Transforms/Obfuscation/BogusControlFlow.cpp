@@ -267,7 +267,7 @@ namespace {
 
       // The always true condition. End of the first block
       Twine * var4 = new Twine("condition");
-      FCmpInst * condition = new FCmpInst(basicBlock->getTerminator()->getIterator(), FCmpInst::FCMP_TRUE , LHS, RHS, *var4);
+      FCmpInst * condition = new FCmpInst(basicBlock->end(), FCmpInst::FCMP_TRUE , LHS, RHS, *var4);
       DEBUG_WITH_TYPE("gen", errs() << "bcf: Always true condition created\n");
 
       // Jump to the original basic block if the condition is true or
