@@ -10,6 +10,9 @@
 #include "llvm/Transforms/Obfuscation/Flattening.h"
 #include "llvm/Transforms/Obfuscation/Split.h"
 #include "llvm/Transforms/Obfuscation/Substitution.h"
+#include "llvm/Transforms/Obfuscation/LinearMBA.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Function.h"
 
 using namespace llvm;
 
@@ -85,6 +88,10 @@ llvmGetPassPluginInfo() {
           }
           if (Name == "boguscf") {
             FPM.addPass(BogusControlFlowPassWrapper());
+            return true;
+          }
+          if (Name == "linear-mba") {
+            FPM.addPass(LinearMBAPass(1, 0xC0FFEE));
             return true;
           }
           return false;
