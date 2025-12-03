@@ -19,15 +19,10 @@
 #include "llvm/CryptoUtils.h"
 #include <cstring>
 
-// Forward declarations
+// Forward declarations (ProcessSwitchInst is in LowerSwitch.h)
 namespace llvm {
   class LazyValueInfo;
   class AssumptionCache;
-
-  void ProcessSwitchInst(SwitchInst *SI,
-                         SmallPtrSetImpl<BasicBlock *> &DeleteList,
-                         AssumptionCache *AC = nullptr,
-                         LazyValueInfo *LVI = nullptr);
 }
 
 #define DEBUG_TYPE "flattening"

@@ -8,6 +8,8 @@
 //===----------------------------------------------------------------------------------===//
 //
 // This file implements BogusControlFlow's pass, inserting bogus control flow.
+// Updated with C++ exception handling support (Hikari-style).
+//
 // It adds bogus flow to a given basic block this way:
 //
 // Before :
@@ -84,7 +86,7 @@
 // date   : june 2012
 // version: 1.0
 // author : julie.michielin@gmail.com
-// modifications: pjunod, Rinaldini Julien
+// modifications: pjunod, Rinaldini Julien, exception handling support
 // project: Obfuscator
 // option : -boguscf
 //
@@ -179,7 +181,28 @@ namespace {
           // Put all the function's block in a list
           std::list<BasicBlock *> basicBlocks;
           for (Function::iterator i=F.begin();i!=F.end();++i) {
-            basicBlocks.push_back(&*i);
+            BasicBlock *BB = &*i;
+            
+            // ===== EXCEPTION HANDLING: Skip landing pad blocks =====
+            // Landing pad blocks cannot be modified - they must remain as the
+            // first instruction in their block and be directly reachable from invoke
+            if (BB->isLandingPad()) {
+              DEBUG_WITH_TYPE("gen", errs() << "bcf: Skipping landing pad block: " 
+                  << BB->getName() << "\n");
+              continue;
+            }
+            
+            // ===== EXCEPTION HANDLING: Skip blocks ending with invoke =====
+            // We can't add bogus flow to blocks ending with invoke because
+            // invoke is a terminator that must remain at the end for exception handling.
+            // The invoke's unwind edge must directly reach a landing pad.
+            if (BB->getTerminator() && isa<InvokeInst>(BB->getTerminator())) {
+              DEBUG_WITH_TYPE("gen", errs() << "bcf: Skipping block with invoke terminator: " 
+                  << BB->getName() << "\n");
+              continue;
+            }
+            
+            basicBlocks.push_back(BB);
           }
           DEBUG_WITH_TYPE("gen", errs() << "bcf: Iterating on the Function's Basic Blocks\n");
 
@@ -227,7 +250,15 @@ namespace {
      * Add bogus flow to a given basic block, according to the header's description
      */
     virtual void addBogusFlow(BasicBlock * basicBlock, Function &F){
-
+      // ===== EXCEPTION HANDLING: Double-check we're not modifying exception-related blocks =====
+      if (basicBlock->isLandingPad()) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: addBogusFlow called on landing pad, skipping\n");
+        return;
+      }
+      if (basicBlock->getTerminator() && isa<InvokeInst>(basicBlock->getTerminator())) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: addBogusFlow called on invoke block, skipping\n");
+        return;
+      }
 
       // Split the block: first part with only the phi nodes and debug info and terminator
       //                  created by splitBasicBlock. (-> No instruction)
@@ -243,6 +274,38 @@ namespace {
       var = new Twine("originalBB");
       BasicBlock *originalBB = basicBlock->splitBasicBlock(i1, *var);
       DEBUG_WITH_TYPE("gen", errs() << "bcf: First and original basic blocks: ok\n");
+
+      // ===== EXCEPTION HANDLING: Check if the split created a block ending with invoke =====
+      // If so, we need to handle this differently
+      if (originalBB->getTerminator() && isa<InvokeInst>(originalBB->getTerminator())) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: Split resulted in invoke terminator, using simplified obfuscation\n");
+        
+        // For blocks ending with invoke, we can still add the entry condition
+        // but we can't split after the invoke or create altered blocks that clone it
+        
+        // Remove the unconditional branch from basicBlock
+        basicBlock->getTerminator()->eraseFromParent();
+        
+        // Create the always-true condition
+        Value * LHS = ConstantFP::get(Type::getFloatTy(F.getContext()), 1.0);
+        Value * RHS = ConstantFP::get(Type::getFloatTy(F.getContext()), 1.0);
+        Twine * var4 = new Twine("condition");
+        FCmpInst * condition = new FCmpInst(basicBlock->end(), FCmpInst::FCMP_TRUE, LHS, RHS, *var4);
+        
+        // Create a dummy "altered" block that just loops back
+        // This creates the appearance of bogus control flow without touching the invoke
+        Twine * var3 = new Twine("alteredBB");
+        BasicBlock *alteredBB = BasicBlock::Create(F.getContext(), *var3, &F, originalBB);
+        
+        // The altered block immediately jumps to the original (it's bogus, never taken)
+        BranchInst::Create(originalBB, alteredBB);
+        
+        // Add conditional branch: true -> originalBB, false -> alteredBB (never taken)
+        BranchInst::Create(originalBB, alteredBB, (Value *)condition, basicBlock);
+        
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: Simplified bogus flow added for invoke block\n");
+        return;
+      }
 
       // Creating the altered basic block on which the first basicBlock will jump
       Twine * var3 = new Twine("alteredBB");
@@ -289,6 +352,14 @@ namespace {
       // iterate on instruction just before the terminator of the originalBB
       BasicBlock::iterator i = originalBB->end();
 
+      // ===== EXCEPTION HANDLING: Check terminator before splitting =====
+      Instruction *terminator = originalBB->getTerminator();
+      if (terminator && isa<InvokeInst>(terminator)) {
+        // If terminator is invoke, we can't split further - just skip the second split
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: originalBB ends with invoke, skipping second split\n");
+        return;
+      }
+
       // Split at this point (we only want the terminator in the second part)
       Twine * var5 = new Twine("originalBBpart2");
       BasicBlock * originalBBpart2 = originalBB->splitBasicBlock(--i , *var5);
@@ -317,13 +388,55 @@ namespace {
      */
     virtual BasicBlock* createAlteredBasicBlock(BasicBlock * basicBlock,
         const Twine &  Name = "gen", Function * F = 0){
+      
+      // ===== EXCEPTION HANDLING: Check for invoke/landingpad before cloning =====
+      // If the block contains invoke or is a landing pad, we need special handling
+      if (basicBlock->isLandingPad()) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: Cannot clone landing pad block, creating empty altered block\n");
+        BasicBlock *alteredBB = BasicBlock::Create(F->getContext(), Name, F, basicBlock);
+        // Add a dummy instruction and return
+        BranchInst::Create(basicBlock, alteredBB);
+        return alteredBB;
+      }
+      
+      // Check if the block ends with invoke - if so, we can't safely clone it
+      if (basicBlock->getTerminator() && isa<InvokeInst>(basicBlock->getTerminator())) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: Block ends with invoke, creating simplified altered block\n");
+        BasicBlock *alteredBB = BasicBlock::Create(F->getContext(), Name, F, basicBlock);
+        // Create a simplified block that just jumps to the original
+        BranchInst::Create(basicBlock, alteredBB);
+        return alteredBB;
+      }
+      
       // Useful to remap the informations concerning instructions.
       ValueToValueMapTy VMap;
       BasicBlock * alteredBB = llvm::CloneBasicBlock (basicBlock, VMap, Name, F);
       DEBUG_WITH_TYPE("gen", errs() << "bcf: Original basic block cloned\n");
+      
+      // ===== EXCEPTION HANDLING: Remove any invoke instructions from the cloned block =====
+      // They can't be properly cloned without also cloning the landing pad
+      std::vector<Instruction*> toRemove;
+      for (BasicBlock::iterator i = alteredBB->begin(), e = alteredBB->end(); i != e; ++i) {
+        if (isa<InvokeInst>(&*i)) {
+          toRemove.push_back(&*i);
+        }
+      }
+      for (Instruction *I : toRemove) {
+        // Replace invoke with unreachable or branch to avoid invalid IR
+        if (I == alteredBB->getTerminator()) {
+          // If it's the terminator, we need to add a new terminator
+          // Just create an unreachable for now (this block is bogus anyway)
+          new UnreachableInst(F->getContext(), I);
+        }
+        I->eraseFromParent();
+      }
+      
       // Remap operands.
       BasicBlock::iterator ji = basicBlock->begin();
       for (BasicBlock::iterator i = alteredBB->begin(), e = alteredBB->end() ; i != e; ++i){
+        // Skip if we've run out of original instructions to match against
+        if (ji == basicBlock->end()) break;
+        
         // Loop over the operands of the instruction
         for(User::op_iterator opi = i->op_begin (), ope = i->op_end(); opi != ope; ++opi){
           // get the value for the operand
@@ -361,6 +474,13 @@ namespace {
 
       // add random instruction in the middle of the bloc. This part can be improve
       for (BasicBlock::iterator i = alteredBB->begin(), e = alteredBB->end() ; i != e; ++i){
+        // ===== EXCEPTION HANDLING: Skip exception-related instructions =====
+        if (isa<LandingPadInst>(&*i) || isa<ResumeInst>(&*i) || 
+            isa<CatchPadInst>(&*i) || isa<CatchReturnInst>(&*i) ||
+            isa<CleanupPadInst>(&*i) || isa<CleanupReturnInst>(&*i)) {
+          continue;
+        }
+        
         // in the case we find binary operator, we modify slightly this part by randomly
         // insert some instructions
         if(i->isBinaryOp()){ // binary instructions

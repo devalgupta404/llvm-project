@@ -29,7 +29,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/CodeGen/ISDOpcodes.h"
+// Removed: #include "llvm/CodeGen/ISDOpcodes.h" - not needed and requires generated files
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/CommandLine.h"

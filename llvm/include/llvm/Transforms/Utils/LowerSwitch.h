@@ -18,6 +18,21 @@
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
+
+// Forward declarations
+class SwitchInst;
+class BasicBlock;
+class AssumptionCache;
+class LazyValueInfo;
+template <typename PtrType> class SmallPtrSetImpl;
+
+// Utility function to process/lower switch instructions
+// Used by obfuscation passes for exception-aware control flow flattening
+void ProcessSwitchInst(SwitchInst *SI,
+                       SmallPtrSetImpl<BasicBlock *> &DeleteList,
+                       AssumptionCache *AC = nullptr,
+                       LazyValueInfo *LVI = nullptr);
+
 struct LowerSwitchPass : public PassInfoMixin<LowerSwitchPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };

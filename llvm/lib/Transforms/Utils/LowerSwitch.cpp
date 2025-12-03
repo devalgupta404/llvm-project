@@ -344,6 +344,11 @@ unsigned Clusterify(CaseVector &Cases, SwitchInst *SI) {
   return NumSimpleCases;
 }
 
+} // end anonymous namespace (temporarily close it before ProcessSwitchInst)
+
+// ProcessSwitchInst must be in llvm:: namespace for external visibility
+namespace llvm {
+
 /// Replace the specified switch instruction with a sequence of chained if-then
 /// insts in a balanced binary search.
 void ProcessSwitchInst(SwitchInst *SI,
@@ -531,6 +536,10 @@ void ProcessSwitchInst(SwitchInst *SI,
   if (pred_empty(OldDefault))
     DeleteList.insert(OldDefault);
 }
+
+} // end namespace llvm
+
+namespace {  // Reopen anonymous namespace
 
 bool LowerSwitch(Function &F, LazyValueInfo *LVI, AssumptionCache *AC) {
   bool Changed = false;
