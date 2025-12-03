@@ -7,6 +7,7 @@ add_llvm_library(LLVMObfuscationPlugin MODULE
   ../SplitBasicBlocks.cpp
   ../Substitution.cpp
   ../Utils.cpp
+  ../../Utils/LowerSwitch.cpp
 
   PLUGIN_TOOL opt
 

@@ -6,13 +6,18 @@
 
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include "llvm/Transforms/Obfuscation/BogusControlFlow.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Function.h"
+#include "llvm/Pass.h"
 #include "llvm/Transforms/Obfuscation/Flattening.h"
 #include "llvm/Transforms/Obfuscation/Split.h"
 #include "llvm/Transforms/Obfuscation/Substitution.h"
 #include "llvm/Transforms/Obfuscation/LinearMBA.h"
-#include "llvm/IR/PassManager.h"
-#include "llvm/IR/Function.h"
+
+// Forward declare to avoid including heavy BogusControlFlow.h
+namespace llvm {
+  Pass *createBogus(bool flag);
+}
 
 using namespace llvm;
 
