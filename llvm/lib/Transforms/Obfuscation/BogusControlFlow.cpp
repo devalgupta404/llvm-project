@@ -245,18 +245,42 @@ namespace {
         }while(--NumObfTimes > 0);
     }
 
+    /* Helper: Check if a block is involved in exception handling
+     * Returns true if the block should not be modified by BCF
+     */
+    bool isExceptionHandlingBlock(BasicBlock *BB) {
+      // Check if it's a landing pad
+      if (BB->isLandingPad()) return true;
+      
+      // Check for exception-related instructions
+      for (Instruction &I : *BB) {
+        // Landing pad instruction
+        if (isa<LandingPadInst>(I)) return true;
+        
+        // Resume instruction (resumes exception propagation)
+        if (isa<ResumeInst>(I)) return true;
+        
+        // Cleanup return (returns from cleanup pad)
+        if (isa<CleanupReturnInst>(I)) return true;
+        
+        // Catch return (returns from catch pad)
+        if (isa<CatchReturnInst>(I)) return true;
+        
+        // Invoke instruction (exception-aware call)
+        if (isa<InvokeInst>(I)) return true;
+      }
+      
+      return false;
+    }
+
     /* addBogusFlow
      *
      * Add bogus flow to a given basic block, according to the header's description
      */
     virtual void addBogusFlow(BasicBlock * basicBlock, Function &F){
-      // ===== EXCEPTION HANDLING: Double-check we're not modifying exception-related blocks =====
-      if (basicBlock->isLandingPad()) {
-        DEBUG_WITH_TYPE("gen", errs() << "bcf: addBogusFlow called on landing pad, skipping\n");
-        return;
-      }
-      if (basicBlock->getTerminator() && isa<InvokeInst>(basicBlock->getTerminator())) {
-        DEBUG_WITH_TYPE("gen", errs() << "bcf: addBogusFlow called on invoke block, skipping\n");
+      // ===== EXCEPTION HANDLING: Comprehensive check for exception-related blocks =====
+      if (isExceptionHandlingBlock(basicBlock)) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: Block contains exception handling, skipping\n");
         return;
       }
 
@@ -333,6 +357,14 @@ namespace {
       FCmpInst * condition = new FCmpInst(basicBlock->end(), FCmpInst::FCMP_TRUE , LHS, RHS, *var4);
       DEBUG_WITH_TYPE("gen", errs() << "bcf: Always true condition created\n");
 
+      // ===== EXCEPTION HANDLING: Check if originalBB has exception handling =====
+      // Cannot create normal branches to exception handling blocks (only unwind edges allowed)
+      if (isExceptionHandlingBlock(originalBB)) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: originalBB has exception handling, cannot add bogus flow\n");
+        // Restore the original terminator and abort bogus flow
+        return;
+      }
+
       // Jump to the original basic block if the condition is true or
       // to the altered block if false.
       BranchInst::Create(originalBB, alteredBB, (Value *)condition, basicBlock);
@@ -368,6 +400,16 @@ namespace {
       // the first part go either on the return statement or on the begining
       // of the altered block.. So we erase the terminator created when splitting.
       originalBB->getTerminator()->eraseFromParent();
+      
+      // ===== EXCEPTION HANDLING: Check if originalBBpart2 has exception handling =====
+      // This shouldn't happen (EH instructions should be at block start), but check anyway
+      if (isExceptionHandlingBlock(originalBBpart2)) {
+        DEBUG_WITH_TYPE("gen", errs() << "bcf: originalBBpart2 has exception handling, restoring original terminator\n");
+        // This is a safety check - if we somehow got an EH block, restore and abort
+        BranchInst::Create(originalBBpart2, originalBB);
+        return;
+      }
+      
       // We add at the end a new always true condition
       Twine * var6 = new Twine("condition2");
       FCmpInst * condition2 = new FCmpInst(originalBB, CmpInst::FCMP_TRUE , LHS, RHS, *var6);
