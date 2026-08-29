@@ -1,4 +1,5 @@
 add_subdirectory(Utils)
+add_subdirectory(Obfuscation)
 
 add_mlir_library(MLIRTransforms
   Canonicalizer.cpp
