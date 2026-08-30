@@ -1,9 +1,12 @@
 add_llvm_component_library(LLVMObfuscation
+  AntiDebug.cpp
   BogusControlFlow.cpp
   CryptoUtils.cpp
   Flattening.cpp
   LinearMBA.cpp
+  OpaquePredicates.cpp
   SplitBasicBlocks.cpp
+  StripSignature.cpp
   Substitution.cpp
   Utils.cpp
 

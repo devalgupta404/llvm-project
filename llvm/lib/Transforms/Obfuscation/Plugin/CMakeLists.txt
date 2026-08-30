@@ -1,10 +1,13 @@
 add_llvm_library(LLVMObfuscationPlugin MODULE
   PluginRegistration.cpp
+  ../AntiDebug.cpp
   ../BogusControlFlow.cpp
   ../CryptoUtils.cpp
   ../Flattening.cpp
   ../LinearMBA.cpp
+  ../OpaquePredicates.cpp
   ../SplitBasicBlocks.cpp
+  ../StripSignature.cpp
   ../Substitution.cpp
   ../Utils.cpp
   ../../Utils/LowerSwitch.cpp

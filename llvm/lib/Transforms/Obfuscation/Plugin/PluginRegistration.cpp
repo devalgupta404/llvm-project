@@ -13,6 +13,9 @@
 #include "llvm/Transforms/Obfuscation/Split.h"
 #include "llvm/Transforms/Obfuscation/Substitution.h"
 #include "llvm/Transforms/Obfuscation/LinearMBA.h"
+#include "llvm/Transforms/Obfuscation/OpaquePredicates.h"
+#include "llvm/Transforms/Obfuscation/StripSignature.h"
+#include "llvm/Transforms/Obfuscation/AntiDebug.h"
 
 // Forward declare to avoid including heavy BogusControlFlow.h
 namespace llvm {
@@ -97,6 +100,23 @@ llvmGetPassPluginInfo() {
           }
           if (Name == "linear-mba") {
             FPM.addPass(LinearMBAPass(1, 0xC0FFEE));
+            return true;
+          }
+          if (Name == "opaque-pred") {
+            FPM.addPass(OpaquePredicatesPass());
+            return true;
+          }
+          return false;
+        });
+      PB.registerPipelineParsingCallback(
+        [](StringRef Name, ModulePassManager &MPM,
+           ArrayRef<PassBuilder::PipelineElement>) {
+          if (Name == "strip-signature") {
+            MPM.addPass(StripSignaturePass());
+            return true;
+          }
+          if (Name == "anti-debug") {
+            MPM.addPass(AntiDebugPass());
             return true;
           }
           return false;
