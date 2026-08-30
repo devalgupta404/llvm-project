@@ -62,7 +62,6 @@ bool Flattening::runOnFunction(Function &F) {
 }
 
 bool Flattening::flatten(Function *f) {
-  errs() << "DEBUG: flatten() called for function: " << f->getName() << "\n";
   vector<BasicBlock *> origBB;
   BasicBlock *loopEntry;
   BasicBlock *loopEnd;
@@ -70,17 +69,14 @@ bool Flattening::flatten(Function *f) {
   SwitchInst *switchI;
   AllocaInst *switchVar;
 
-  errs() << "DEBUG: About to initialize cryptoutils scrambler\n";
   // SCRAMBLER
   char scrambling_key[16];
   bool use_scrambler = false;
   // Force initialization of cryptoutils if not already done
   if (cryptoutils.isConstructed()) {
-    errs() << "DEBUG: cryptoutils is constructed, getting scrambling key\n";
     llvm::cryptoutils->get_bytes(scrambling_key, 16);
     use_scrambler = true;
   } else {
-    errs() << "DEBUG: cryptoutils not constructed, using passthrough\n";
     // Fallback: use zeros if cryptoutils not available
     memset(scrambling_key, 0, 16);
   }
@@ -91,56 +87,43 @@ bool Flattening::flatten(Function *f) {
   };
   // END OF SCRAMBLER
 
-  errs() << "DEBUG: About to lower switch instructions\n";
   // Lower switch - using modern LLVM utility
   SmallPtrSet<BasicBlock *, 16> DeleteList;
   for (BasicBlock &BB : *f) {
-    errs() << "DEBUG: Checking BB: " << BB.getName() << "\n";
     if (SwitchInst *SI = dyn_cast<SwitchInst>(BB.getTerminator())) {
-      errs() << "DEBUG: Found switch instruction, processing...\n";
       ProcessSwitchInst(SI, DeleteList, nullptr, nullptr);
     }
   }
-  errs() << "DEBUG: Deleting " << DeleteList.size() << " basic blocks\n";
   for (BasicBlock *BB : DeleteList) {
     BB->eraseFromParent();
   }
 
-  errs() << "DEBUG: About to save all original BB\n";
   // Save all original BB
   for (Function::iterator i = f->begin(); i != f->end(); ++i) {
     BasicBlock *tmp = &*i;
     origBB.push_back(tmp);
 
     BasicBlock *bb = &*i;
-    errs() << "DEBUG: Checking BB terminator for: " << bb->getName() << "\n";
     if (!bb->getTerminator()) {
-      errs() << "DEBUG: BB has no terminator, skipping\n";
       return false;
     }
     if (isa<InvokeInst>(bb->getTerminator())) {
-      errs() << "DEBUG: BB has invoke instruction, bailing out\n";
       return false;
     }
   }
 
   // Nothing to flatten
-  errs() << "DEBUG: origBB.size() = " << origBB.size() << "\n";
   if (origBB.size() <= 1) {
-    errs() << "DEBUG: Nothing to flatten, returning\n";
     return false;
   }
 
-  errs() << "DEBUG: Removing first BB\n";
   // Remove first BB
   origBB.erase(origBB.begin());
 
-  errs() << "DEBUG: Getting pointer to first BB\n";
   // Get a pointer on the first BB
   Function::iterator tmp = f->begin();  //++tmp;
   BasicBlock *insert = &*tmp;
 
-  errs() << "DEBUG: Checking if main begins with an if\n";
   // If main begin with an if
   BranchInst *br = NULL;
   if (isa<BranchInst>(insert->getTerminator())) {
@@ -149,8 +132,6 @@ bool Flattening::flatten(Function *f) {
 
   if ((br != NULL && br->isConditional()) ||
       insert->getTerminator()->getNumSuccessors() > 1) {
-    errs() << "DEBUG: Conditional branch found, need to split basic block\n";
-    errs() << "DEBUG: insert->size() = " << insert->size() << "\n";
 
     // The goal: If the first BB has multiple instructions before a conditional branch,
     // split it so that there's a clean entry point.
@@ -162,68 +143,53 @@ bool Flattening::flatten(Function *f) {
 
     // We want to split BEFORE the terminator if there are multiple instructions
     if (insert->size() > 1) {
-      errs() << "DEBUG: Splitting before terminator\n";
       // With Before=false (default): Split AT terminator, moves it and everything after to new block
       // With Before=true: Split BEFORE terminator, keeps it in original, moves everything before to new block
       // We want the terminator to stay so we can erase it, so use Before=false (default)
       BasicBlock *tmpBB = insert->splitBasicBlock(terminator, "first");
       origBB.insert(origBB.begin(), tmpBB);
-      errs() << "DEBUG: Split complete, tmpBB has " << tmpBB->size() << " instructions\n";
-      errs() << "DEBUG: insert now has " << insert->size() << " instructions\n";
     }
   }
 
-  errs() << "DEBUG: About to remove jump from insert block\n";
   // Remove jump - insert should still have its terminator
   if (insert->getTerminator()) {
-    errs() << "DEBUG: Erasing terminator from insert\n";
     insert->getTerminator()->eraseFromParent();
   } else {
-    errs() << "DEBUG: ERROR: No terminator in insert block!\n";
     return false;
   }
 
-  errs() << "DEBUG: Creating switch variable\n";
   // Create switch variable and set as it
   // NOTE: insert has no terminator now, so we need to insert at end()
   switchVar =
       new AllocaInst(Type::getInt32Ty(f->getContext()), 0, "switchVar", insert->end());
-  errs() << "DEBUG: Creating store instruction\n";
   new StoreInst(
       ConstantInt::get(Type::getInt32Ty(f->getContext()),
                        scramble(0)),
       switchVar, insert->end());
 
-  errs() << "DEBUG: Creating main loop blocks\n";
   // Create main loop
   loopEntry = BasicBlock::Create(f->getContext(), "loopEntry", f, insert);
   loopEnd = BasicBlock::Create(f->getContext(), "loopEnd", f, insert);
 
-  errs() << "DEBUG: Creating load instruction in loopEntry\n";
   // loopEntry has no terminator yet, use end()
   load = new LoadInst(Type::getInt32Ty(f->getContext()), switchVar, "switchVar", loopEntry->end());
 
-  errs() << "DEBUG: Moving insert block and creating branch\n";
   // Move first BB on top
   insert->moveBefore(loopEntry);
   // insert still has no terminator, use end()
   BranchInst::Create(loopEntry, insert->end());
 
-  errs() << "DEBUG: Creating loopEnd branch\n";
   // loopEnd jump to loopEntry
   BranchInst::Create(loopEntry, loopEnd->end());
 
-  errs() << "DEBUG: Creating switch default block\n";
   BasicBlock *swDefault =
       BasicBlock::Create(f->getContext(), "switchDefault", f, loopEnd);
   BranchInst::Create(loopEnd, swDefault->end());
 
-  errs() << "DEBUG: Creating switch instruction\n";
   // Create switch instruction itself and set condition
   switchI = SwitchInst::Create(&*f->begin(), swDefault, 0, loopEntry->end());
   switchI->setCondition(load);
 
-  errs() << "DEBUG: Fixing first BB branch\n";
   // Remove branch jump from 1st BB and make a jump to the while
   f->begin()->getTerminator()->eraseFromParent();
 

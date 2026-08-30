@@ -415,9 +415,12 @@ void ProcessSwitchInst(SwitchInst *SI,
     // TODO Shouldn't this create a signed range?
     ConstantRange KnownBitsRange =
         ConstantRange::fromKnownBits(Known, /*IsSigned=*/false);
-    const ConstantRange LVIRange =
-        LVI->getConstantRange(Val, SI, /*UndefAllowed*/ false);
-    ConstantRange ValRange = KnownBitsRange.intersectWith(LVIRange);
+    // LVI is optional (e.g. obfuscation passes call ProcessSwitchInst without
+    // analyses). Only tighten the range with it when it is available.
+    ConstantRange ValRange = KnownBitsRange;
+    if (LVI)
+      ValRange = ValRange.intersectWith(
+          LVI->getConstantRange(Val, SI, /*UndefAllowed*/ false));
     // We delegate removal of unreachable non-default cases to other passes. In
     // the unlikely event that some of them survived, we just conservatively
     // maintain the invariant that all the cases lie between the bounds. This
