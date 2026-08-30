@@ -9,6 +9,7 @@ add_llvm_component_library(LLVMObfuscation
   StripSignature.cpp
   Substitution.cpp
   Utils.cpp
+  Virtualization.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Transforms

@@ -16,6 +16,7 @@
 #include "llvm/Transforms/Obfuscation/OpaquePredicates.h"
 #include "llvm/Transforms/Obfuscation/StripSignature.h"
 #include "llvm/Transforms/Obfuscation/AntiDebug.h"
+#include "llvm/Transforms/Obfuscation/Virtualization.h"
 
 // Forward declare to avoid including heavy BogusControlFlow.h
 namespace llvm {
@@ -117,6 +118,10 @@ llvmGetPassPluginInfo() {
           }
           if (Name == "anti-debug") {
             MPM.addPass(AntiDebugPass());
+            return true;
+          }
+          if (Name == "virtualize") {
+            MPM.addPass(VirtualizationPass());
             return true;
           }
           return false;

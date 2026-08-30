@@ -10,6 +10,7 @@ add_llvm_library(LLVMObfuscationPlugin MODULE
   ../StripSignature.cpp
   ../Substitution.cpp
   ../Utils.cpp
+  ../Virtualization.cpp
   ../../Utils/LowerSwitch.cpp
 
   PLUGIN_TOOL opt
