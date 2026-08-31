@@ -14,6 +14,8 @@
 #include "llvm/Transforms/Obfuscation/Substitution.h"
 #include "llvm/Transforms/Obfuscation/LinearMBA.h"
 #include "llvm/Transforms/Obfuscation/OpaquePredicates.h"
+#include "llvm/Transforms/Obfuscation/IndirectCall.h"
+#include "llvm/Transforms/Obfuscation/PDataStrip.h"
 #include "llvm/Transforms/Obfuscation/StripSignature.h"
 #include "llvm/Transforms/Obfuscation/AntiDebug.h"
 #include "llvm/Transforms/Obfuscation/Virtualization.h"
@@ -114,6 +116,14 @@ llvmGetPassPluginInfo() {
            ArrayRef<PassBuilder::PipelineElement>) {
           if (Name == "strip-signature") {
             MPM.addPass(StripSignaturePass());
+            return true;
+          }
+          if (Name == "pdata-strip") {
+            MPM.addPass(PDataStripPass());
+            return true;
+          }
+          if (Name == "indirect-call") {
+            MPM.addPass(IndirectCallPass());
             return true;
           }
           if (Name == "anti-debug") {

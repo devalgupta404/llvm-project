@@ -78,6 +78,25 @@ attribute to a compiler and version.
 File: `llvm/lib/Transforms/Obfuscation/StripSignature.cpp`
 Flag: `strip-signature`
 
+### Indirect calls
+Rewrites eligible direct calls to load the callee address from a module level
+function pointer table and call through that pointer, so the emitted call graph
+no longer records a direct edge from caller to callee. The load is volatile so
+the optimizer cannot fold the table entry back into a direct call, and the table
+slot for each callee is chosen from a seeded PRNG, so the layout is randomized
+but reproducible.
+File: `llvm/lib/Transforms/Obfuscation/IndirectCall.cpp`
+Flag: `indirect-call`
+
+### Unwind table stripping
+Removes the `uwtable` attribute and dead exception personality references from
+functions that contain no exception handling, so the backend emits fewer
+`.pdata`/`.xdata` unwind records that would otherwise fingerprint the toolchain.
+It only touches functions with no EH constructs, so behaviour is unchanged; it
+cannot remove records the ABI still requires for functions with real frames.
+File: `llvm/lib/Transforms/Obfuscation/PDataStrip.cpp`
+Flag: `pdata-strip`
+
 ### Anti debug
 Injects a debugger check that runs before main and exits the program if a
 debugger is attached. It is target aware, so it uses IsDebuggerPresent on
@@ -133,12 +152,35 @@ table does not spell out exactly which library functions the code relies on.
 File: `mlir/lib/Transforms/Obfuscation/ImportObfuscationPass.cpp`
 Flag: `import-obfuscate`
 
+## Recommended pass ordering
+
+Order matters, because each pass sees the IR the previous one produced. A good
+default is:
+
+1. `strip-signature` and `pdata-strip` first. Both only remove fingerprinting
+   metadata and attributes, so getting them out of the way early keeps them from
+   re-reading anything the later passes add. They are order independent with
+   respect to each other.
+2. `virtualize` next, so whole functions are lowered to bytecode before the
+   intra-function passes run.
+3. The function level passes, wrapped in `function(...)`: `opaque-pred`,
+   `substitution`, `boguscf`, `flattening`, `linear-mba`. These rewrite the body
+   of each function and should see normal, un-indirected calls.
+4. `anti-debug` after the body rewrites, so the injected check is in place.
+5. `indirect-call` **last**. It hides the direct call edges, and running it at
+   the end means it also reroutes the calls the earlier passes introduced
+   (including the anti-debug check). It must run after inlining, so with a
+   standalone `opt` invocation keep it here rather than before `clang -O1`;
+   indirect calls do not inline, so an early run would block the inliner. Its
+   volatile-load indirection is meant to survive later folding, so nothing
+   should run a general optimization pipeline after it.
+
 ## A full example on a C file
 
 ```
 clang -O1 -S -emit-llvm prog.c -o prog.ll
 opt -load-pass-plugin=build/lib/LLVMObfuscationPlugin.so \
-  -passes='strip-signature,virtualize,function(opaque-pred),anti-debug' \
+  -passes='strip-signature,pdata-strip,virtualize,function(opaque-pred),anti-debug,indirect-call' \
   -S prog.ll -o prog.obf.ll
 clang prog.obf.ll -o prog_obf
 ```
@@ -159,9 +201,11 @@ After that clang finds `windows.h` and the rest on its own.
 
 The obfuscation passes work on LLVM IR, so they do not care about the target.
 Virtualization, opaque predicates, signature stripping, substitution, bogus
-control flow, flattening, split, and linear MBA all run the same way for a
-Windows target as they do for Linux. Anti debug also works because it switches
-to IsDebuggerPresent when the module targets Windows.
+control flow, flattening, split, linear MBA, and indirect calls all run the same
+way for a Windows target as they do for Linux. Anti debug also works because it
+switches to IsDebuggerPresent when the module targets Windows. Unwind table
+stripping (`pdata-strip`) is aimed squarely at the Windows target, since it
+thins out the `.pdata`/`.xdata` unwind records the Win64 backend would emit.
 
 Here is the full flow for a 64 bit Windows build. Use `i686-w64-mingw32` if you
 want a 32 bit build instead.
@@ -174,7 +218,7 @@ build/bin/clang --target=$TGT -O1 -S -emit-llvm prog.c -o prog.ll
 
 # 2. Obfuscate
 build/bin/opt -load-pass-plugin=build/lib/LLVMObfuscationPlugin.so \
-  -passes='strip-signature,virtualize,function(opaque-pred,substitution,boguscf,flattening),anti-debug' \
+  -passes='strip-signature,pdata-strip,virtualize,function(opaque-pred,substitution,boguscf,flattening),anti-debug,indirect-call' \
   -S prog.ll -o prog.obf.ll
 
 # 3. IR to object, then link into a .exe with the mingw driver
@@ -234,7 +278,7 @@ build/bin/clang --target=$TGT \
 
 # 2. Obfuscate
 build/bin/opt -load-pass-plugin=build/lib/LLVMObfuscationPlugin.so \
-  -passes='strip-signature,virtualize,function(opaque-pred,substitution,boguscf,flattening),anti-debug' \
+  -passes='strip-signature,pdata-strip,virtualize,function(opaque-pred,substitution,boguscf,flattening),anti-debug,indirect-call' \
   -S prog.ll -o prog.obf.ll
 
 # 3. IR to a COFF object, then link with lld-link against the MSVC and SDK libs

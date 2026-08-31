@@ -4,8 +4,10 @@ add_llvm_library(LLVMObfuscationPlugin MODULE
   ../BogusControlFlow.cpp
   ../CryptoUtils.cpp
   ../Flattening.cpp
+  ../IndirectCall.cpp
   ../LinearMBA.cpp
   ../OpaquePredicates.cpp
+  ../PDataStrip.cpp
   ../SplitBasicBlocks.cpp
   ../StripSignature.cpp
   ../Substitution.cpp

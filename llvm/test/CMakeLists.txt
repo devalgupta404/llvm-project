@@ -179,6 +179,10 @@ if(TARGET LTO)
   set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} LTO)
 endif()
 
+if(TARGET LLVMObfuscationPlugin)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} LLVMObfuscationPlugin)
+endif()
+
 if (TARGET llvm-mt)
   list(APPEND LLVM_TEST_DEPENDS llvm-mt)
 endif ()
