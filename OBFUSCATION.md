@@ -79,9 +79,9 @@ File: `llvm/lib/Transforms/Obfuscation/StripSignature.cpp`
 Flag: `strip-signature`
 
 ### Anti debug
-Injects a ptrace self attach check that runs before main, and if a debugger is
-already attached the program just exits, which gets in the way of dynamic
-analysis on Linux.
+Injects a debugger check that runs before main and exits the program if a
+debugger is attached. It is target aware, so it uses IsDebuggerPresent on
+Windows and a ptrace self attach on Linux.
 File: `llvm/lib/Transforms/Obfuscation/AntiDebug.cpp`
 Flag: `anti-debug`
 
@@ -146,3 +146,41 @@ clang prog.obf.ll -o prog_obf
 If you also want the MLIR passes, take the IR through `mlir-translate
 --import-llvm`, run the MLIR plugin, and bring it back with `mlir-translate
 --mlir-to-llvmir` before the final compile.
+
+## Cross compiling Windows binaries
+
+You can obfuscate and build native Windows executables from Linux. There is no
+special cross compilation pass for this. Clang is already a cross compiler, so
+you just pick the Windows target with a triple and point it at a sysroot that
+has the Windows headers and import libraries. The usual free source of the full
+Win32 header set is mingw-w64, so install it once with your package manager (on
+Debian and Ubuntu that is `gcc-mingw-w64-x86-64` and `binutils-mingw-w64-x86-64`).
+After that clang finds `windows.h` and the rest on its own.
+
+The obfuscation passes work on LLVM IR, so they do not care about the target.
+Virtualization, opaque predicates, signature stripping, substitution, bogus
+control flow, flattening, split, and linear MBA all run the same way for a
+Windows target as they do for Linux. Anti debug also works because it switches
+to IsDebuggerPresent when the module targets Windows.
+
+Here is the full flow for a 64 bit Windows build. Use `i686-w64-mingw32` if you
+want a 32 bit build instead.
+
+```
+TGT=x86_64-w64-mingw32
+
+# 1. Windows C to LLVM IR (mingw supplies the headers)
+build/bin/clang --target=$TGT -O1 -S -emit-llvm prog.c -o prog.ll
+
+# 2. Obfuscate
+build/bin/opt -load-pass-plugin=build/lib/LLVMObfuscationPlugin.so \
+  -passes='strip-signature,virtualize,function(opaque-pred,substitution,boguscf,flattening),anti-debug' \
+  -S prog.ll -o prog.obf.ll
+
+# 3. IR to object, then link into a .exe with the mingw driver
+build/bin/clang --target=$TGT -c prog.obf.ll -o prog.obj
+x86_64-w64-mingw32-gcc prog.obj -o prog.exe
+```
+
+That gives you a real PE32+ executable. You can run it on Windows, or on Linux
+through wine if you have it installed.
