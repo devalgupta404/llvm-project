@@ -184,3 +184,71 @@ x86_64-w64-mingw32-gcc prog.obj -o prog.exe
 
 That gives you a real PE32+ executable. You can run it on Windows, or on Linux
 through wine if you have it installed.
+
+## MSVC style Windows builds
+
+The mingw path above is the easy one. If you need MSVC style code, meaning the
+`x86_64-pc-windows-msvc` target with the real Microsoft CRT and Windows SDK,
+the obfuscation side already works exactly the same. Clang compiles MSVC code,
+`_MSC_VER` is set, and it emits normal COFF objects, so every pass runs on that
+IR just like any other target. Virtualization, opaque predicates, and the rest
+all apply, and anti debug uses IsDebuggerPresent because the target is Windows.
+
+What the MSVC path needs on top of that is two toolchain pieces that the mingw
+path did not.
+
+First you need the LLVM PE linker `lld-link`. This fork ships the lld sources,
+they are just not built yet, so turn the project on and build the linker once.
+
+```
+cmake -S llvm -B build -G Ninja \
+  -DLLVM_ENABLE_PROJECTS="clang;mlir;lld" \
+  -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=ON
+ninja -C build -j4 lld-link
+```
+
+Second you need the Microsoft headers and import libraries. Microsoft does not
+ship these with LLVM, so fetch them with the `xwin` tool, which downloads the
+CRT and the Windows SDK straight from Microsoft after you accept their license.
+
+```
+# install xwin (needs Rust and cargo), then splat the SDK into a sysroot
+cargo install xwin
+xwin --accept-license splat --output $HOME/xwin
+```
+
+Now you have everything. The flow is the same three steps as before, you just
+point clang at the MSVC sysroot and link with `lld-link`.
+
+```
+TGT=x86_64-pc-windows-msvc
+XWIN=$HOME/xwin
+
+# 1. MSVC C to LLVM IR (headers come from the xwin sysroot)
+build/bin/clang --target=$TGT \
+  -isystem $XWIN/crt/include \
+  -isystem $XWIN/sdk/include/ucrt \
+  -isystem $XWIN/sdk/include/um \
+  -isystem $XWIN/sdk/include/shared \
+  -O1 -S -emit-llvm prog.c -o prog.ll
+
+# 2. Obfuscate
+build/bin/opt -load-pass-plugin=build/lib/LLVMObfuscationPlugin.so \
+  -passes='strip-signature,virtualize,function(opaque-pred,substitution,boguscf,flattening),anti-debug' \
+  -S prog.ll -o prog.obf.ll
+
+# 3. IR to a COFF object, then link with lld-link against the MSVC and SDK libs
+build/bin/clang --target=$TGT -c prog.obf.ll -o prog.obj
+build/bin/lld-link prog.obj -out:prog.exe -subsystem:console \
+  -libpath:$XWIN/crt/lib/x86_64 \
+  -libpath:$XWIN/sdk/lib/ucrt/x86_64 \
+  -libpath:$XWIN/sdk/lib/um/x86_64 \
+  -defaultlib:libcmt -defaultlib:oldnames
+```
+
+A couple of notes. The C++ exception model on MSVC uses funclets, and the
+control flow passes leave any function that has exception edges alone, so they
+never corrupt that code, they just skip it. If you would rather let clang find
+the includes and libs for you, `clang-cl --target=$TGT /winsysroot:$XWIN` does
+that in one flag, but the plain clang driver above keeps the emit LLVM IR step
+simple for the obfuscation pass in the middle.
